@@ -14,6 +14,7 @@ ACMD="$1"
 YELLOW='\033[0;33m'
 GREEN='\033[0;32m'
 RED='\033[0;31m'
+BLUE='\033[0;34m'
 NC='\033[0m'
 
 # ================================================================
@@ -64,36 +65,118 @@ EOF
 }
 
 # ================================================================
-# Arranque/parada de PHP-FPM
+# PHP-FPM
 # ================================================================
+FPM_SOCK="/data/data/com.termux/files/usr/var/run/php-fpm.sock"
+
 start_fpm() {
-    if ! pgrep -x php-fpm > /dev/null; then
-        echo "Iniciando PHP-FPM..."
-        php-fpm
-        sleep 1
+    if pgrep -f php-fpm > /dev/null; then
+        echo "PHP-FPM ya esta corriendo."
+        return 0
+    fi
+
+    if [ -S "$FPM_SOCK" ]; then
+        echo "Limpiando socket huerfano de PHP-FPM..."
+        rm -f "$FPM_SOCK"
+    fi
+
+    echo "Iniciando PHP-FPM..."
+    php-fpm
+    sleep 1
+
+    if pgrep -f php-fpm > /dev/null; then
+        echo "PHP-FPM iniciado correctamente."
+    else
+        echo -e "${YELLOW}Aviso: PHP-FPM no pudo iniciarse. Revisa $PREFIX/var/log/php-fpm.log${NC}"
     fi
 }
 
 stop_fpm() {
-    if pgrep -x php-fpm > /dev/null; then
+    if pgrep -f php-fpm > /dev/null; then
         echo "Deteniendo PHP-FPM..."
-        pkill -x php-fpm
+        pkill -f php-fpm
+        sleep 1
+        rm -f "$FPM_SOCK"
     fi
 }
 
+# ================================================================
+# MariaDB
+# ================================================================
+start_mariadb() {
+    if pgrep -x mariadbd > /dev/null; then
+        echo "MariaDB ya esta corriendo."
+        return 0
+    fi
+
+    echo "Iniciando MySQL/MariaDB..."
+    mariadbd-safe &
+    sleep 3
+}
+
+stop_mariadb() {
+    if pgrep -x mariadbd-safe > /dev/null; then
+        echo "Deteniendo mariadbd-safe..."
+        pkill -x mariadbd-safe
+        sleep 1
+    fi
+
+    if pgrep -x mariadbd > /dev/null; then
+        echo "Deteniendo mariadbd..."
+        pkill -x mariadbd
+        sleep 2
+    fi
+
+    if pgrep -x mariadbd > /dev/null; then
+        echo "Forzando cierre de mariadbd..."
+        pkill -9 -x mariadbd
+        sleep 1
+    fi
+}
+
+# ================================================================
+# Apache
+# ================================================================
+start_apache() {
+    if pgrep -x httpd > /dev/null; then
+        echo "Apache ya esta corriendo."
+        return 0
+    fi
+
+    echo "Iniciando Apache..."
+    apachectl start
+    sleep 1
+}
+
+stop_apache() {
+    if pgrep -x httpd > /dev/null; then
+        echo "Deteniendo Apache..."
+        apachectl stop
+        sleep 2
+
+        for i in 1 2 3 4 5; do
+            pgrep -x httpd > /dev/null || break
+            sleep 1
+        done
+
+        if pgrep -x httpd > /dev/null; then
+            echo "Forzando cierre de Apache..."
+            pkill -x httpd
+            sleep 1
+        fi
+    fi
+}
+
+# ================================================================
+# Comandos
+# ================================================================
 case $ACMD in
 start)
     ensure_mysql_socket_config
 
-    echo "Iniciando Apache..."
-    apachectl start
-
+    start_apache
     start_fpm
-
-    echo "Iniciando MySQL/MariaDB..."
-    mariadbd-safe &
-
-    sleep 3
+    start_mariadb
 
     echo "Abriendo navegador: http://localhost/"
     termux-open-url http://localhost/
@@ -121,13 +204,10 @@ start-ssl)
 
     echo "Iniciando Matrix Server con SSL..."
     apachectl restart
+    sleep 1
 
     start_fpm
-
-    echo "Iniciando MySQL/MariaDB..."
-    mariadbd-safe &
-
-    sleep 3
+    start_mariadb
 
     echo "Abriendo navegador: https://localhost/"
     termux-open-url https://localhost/
@@ -136,11 +216,148 @@ start-ssl)
 stop)
     echo "Deteniendo Matrix Server..."
 
-    apachectl stop
     stop_fpm
+    stop_apache
+    stop_mariadb
 
-    pgrep mariadbd && pkill mariadbd
-    pgrep mariadbd-safe && pkill mariadbd-safe
+    rm -f "$FPM_SOCK" 2>/dev/null
+
+    echo ""
+    REMAIN=0
+
+    if pgrep -f php-fpm > /dev/null; then
+        echo -e "${YELLOW}Aviso: PHP-FPM sigue corriendo.${NC}"
+        REMAIN=1
+    fi
+
+    if pgrep -x httpd > /dev/null; then
+        echo -e "${YELLOW}Aviso: Apache sigue corriendo.${NC}"
+        REMAIN=1
+    fi
+
+    if pgrep -x mariadbd > /dev/null; then
+        echo -e "${YELLOW}Aviso: MariaDB sigue corriendo.${NC}"
+        REMAIN=1
+    fi
+
+    if [ "$REMAIN" = "0" ]; then
+        echo -e "${GREEN}Matrix Server detenido correctamente.${NC}"
+    else
+        echo -e "${RED}Algunos servicios no se detuvieron. Revisa con: ps aux | grep -E 'httpd|php-fpm|mariadbd'${NC}"
+    fi
+    ;;
+
+restart)
+    echo -e "${BLUE}Reiniciando Matrix Server...${NC}"
+    echo ""
+
+    echo "=== Deteniendo servicios ==="
+    stop_fpm
+    stop_apache
+    stop_mariadb
+
+    rm -f "$FPM_SOCK" 2>/dev/null
+
+    sleep 1
+
+    echo ""
+    echo "=== Iniciando servicios ==="
+
+    ensure_mysql_socket_config
+
+    start_apache
+    start_fpm
+    start_mariadb
+
+    echo ""
+    echo -e "${GREEN}Matrix Server reiniciado correctamente.${NC}"
+    echo "Abriendo navegador: http://localhost/"
+    termux-open-url http://localhost/
+    ;;
+
+status)
+    echo -e "${BLUE}=== Estado de Matrix Server ===${NC}"
+    echo ""
+
+    # --- Apache ---
+    if pgrep -x httpd > /dev/null; then
+        echo -e "Apache:      ${GREEN}ACTIVO${NC}"
+    else
+        echo -e "Apache:      ${RED}APAGADO${NC}"
+    fi
+
+    # --- PHP-FPM ---
+    if pgrep -f php-fpm > /dev/null; then
+        FPM_COUNT=$(pgrep -f php-fpm | wc -l)
+        echo -e "PHP-FPM:     ${GREEN}ACTIVO${NC} ($FPM_COUNT procesos)"
+    else
+        echo -e "PHP-FPM:     ${RED}APAGADO${NC}"
+    fi
+
+    # --- MariaDB ---
+    if pgrep -x mariadbd > /dev/null; then
+        echo -e "MariaDB:     ${GREEN}ACTIVO${NC}"
+    else
+        echo -e "MariaDB:     ${RED}APAGADO${NC}"
+    fi
+
+    echo ""
+
+    # --- Puertos ---
+    echo -e "${BLUE}Puertos:${NC}"
+
+    if command -v ss > /dev/null 2>&1; then
+        P80=$(ss -tln 2>/dev/null | grep -c ':80 ')
+        P443=$(ss -tln 2>/dev/null | grep -c ':443 ')
+        P3306=$(ss -tln 2>/dev/null | grep -c ':3306 ')
+
+        if [ "$P80" -gt 0 ]; then
+            echo -e " Puerto 80:   ${GREEN}ESCUCHANDO${NC}"
+        else
+            echo -e " Puerto 80:   ${RED}NO ESCUCHA${NC}"
+        fi
+
+        if [ "$P443" -gt 0 ]; then
+            echo -e " Puerto 443:  ${GREEN}ESCUCHANDO${NC}"
+        else
+            echo -e " Puerto 443:  ${RED}NO ESCUCHA${NC}"
+        fi
+
+        if [ "$P3306" -gt 0 ]; then
+            echo -e " Puerto 3306: ${GREEN}ESCUCHANDO${NC}"
+        else
+            echo -e " Puerto 3306: ${RED}NO ESCUCHA${NC}"
+        fi
+    else
+        echo " (comando ss no disponible)"
+    fi
+
+    echo ""
+
+    # --- Sockets ---
+    echo -e "${BLUE}Sockets:${NC}"
+
+    if [ -S "$FPM_SOCK" ]; then
+        echo -e " PHP-FPM:     ${GREEN}$FPM_SOCK${NC}"
+    else
+        echo -e " PHP-FPM:     ${RED}no existe${NC}"
+    fi
+
+    MYSQL_SOCK=$(detect_mysql_socket)
+    if [ -n "$MYSQL_SOCK" ] && [ -S "$MYSQL_SOCK" ]; then
+        echo -e " MariaDB:     ${GREEN}$MYSQL_SOCK${NC}"
+    else
+        echo -e " MariaDB:     ${RED}no detectado${NC}"
+    fi
+
+    echo ""
+
+    # --- URLs de acceso ---
+    echo -e "${BLUE}Acceso:${NC}"
+    echo " HTTP:        http://localhost/"
+    echo " HTTPS:       https://localhost/"
+    echo " phpMyAdmin:  http://localhost/phpmyadmin"
+    echo " htdocs:      /sdcard/htdocs"
     ;;
 
 update)
@@ -178,7 +395,10 @@ uninstall)
     read -p "Deseas continuar? (y/n) " REPLY
 
     if [ "$REPLY" = "y" ]; then
+        echo "Deteniendo todos los servicios antes de desinstalar..."
         stop_fpm
+        stop_apache
+        stop_mariadb
 
         rm -f $PREFIX/etc/apache2/server.crt
         rm -f $PREFIX/etc/apache2/server.key
@@ -204,6 +424,8 @@ uninstall)
     echo " start          Iniciar Matrix Server en el puerto 80"
     echo " start-ssl      Iniciar Matrix Server con SSL en el puerto 443"
     echo " stop           Detener Matrix Server"
+    echo " restart        Reiniciar Matrix Server (stop + start)"
+    echo " status         Ver el estado de los servicios"
     echo " update         Actualizar Matrix Server"
     echo " uninstall      Desinstalar Matrix Server"
     ;;
