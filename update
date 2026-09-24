@@ -1,0 +1,37 @@
+#!$PREFIX/bin/bash
+
+BLUE='\033[0;34m'
+RED='\033[0;31m'
+YELLOW='\033[0;33m'
+NC='\033[0m'
+
+apachectl stop
+
+pgrep php-fpm && pkill php-fpm
+
+pgrep mariadb && pkill mariadb
+
+echo "${BLUE}Actualizando Matrix Server...${NC}"
+
+pkg install php-fpm php-sodium -y
+
+rm -f $PREFIX/etc/apache2/httpd.conf
+
+cp httpd.conf $PREFIX/etc/apache2/
+
+rm -f $PREFIX/etc/apache2/extra/httpd-ssl.conf
+
+cp httpd-ssl.conf $PREFIX/etc/apache2/extra/
+
+rm -f $PREFIX/bin/matrix
+
+chmod +x matrix
+
+cp matrix $PREFIX/bin/
+
+cp -n .htaccess /sdcard/htdocs/
+
+cp -n config.inc.php /sdcard/htdocs/phpmyadmin/config.inc.php
+
+echo "${RED}¡Listo!${NC}"
+echo "${YELLOW}Matrix Server está actualizado.${NC}"

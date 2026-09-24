@@ -1,0 +1,148 @@
+#!/data/data/com.termux/files/usr/bin/sh
+
+if [ ! -d /sdcard/htdocs ]
+then
+    mkdir /sdcard/htdocs
+fi
+
+ACMD="$1"
+
+start_fpm() {
+    if ! pgrep -x php-fpm > /dev/null
+    then
+        echo "Iniciando PHP-FPM..."
+        php-fpm
+        sleep 1
+    fi
+}
+
+stop_fpm() {
+    if pgrep -x php-fpm > /dev/null
+    then
+        echo "Deteniendo PHP-FPM..."
+        pkill -x php-fpm
+    fi
+}
+
+case $ACMD in
+start)
+    echo "Iniciando Apache..."
+    apachectl start
+    start_fpm
+
+    echo "Iniciando MySQL/MariaDB..."
+    mariadbd-safe &
+
+    sleep 3
+
+    echo "Abriendo navegador: http://localhost/"
+    termux-open-url http://localhost/
+    ;;
+
+start-ssl)
+    if ! openssl x509 -checkend 86400 -noout -in /data/data/com.termux/files/usr/etc/apache2/server.crt
+    then
+        echo "El certificado SSL ha expirado."
+        echo "Creando un nuevo certificado SSL..."
+
+        cd ~/
+        openssl req -x509 -newkey rsa:2048 \
+            -keyout server.key \
+            -out server.crt \
+            -days 365 \
+            -nodes \
+            -subj '/CN=localhost'
+
+        mv -f server.crt $PREFIX/etc/apache2/server.crt
+        mv -f server.key $PREFIX/etc/apache2/server.key
+    fi
+
+    echo "Iniciando Matrix Server con SSL..."
+    apachectl restart
+    start_fpm
+
+    echo "Iniciando MySQL/MariaDB..."
+    mariadbd-safe &
+
+    sleep 3
+
+    echo "Abriendo navegador: https://localhost/"
+    termux-open-url https://localhost/
+    ;;
+
+stop)
+    echo "Deteniendo Matrix Server..."
+
+    apachectl stop
+    stop_fpm
+
+    pgrep mariadb && pkill mariadb
+    ;;
+
+update)
+    if [ ! -d ~/matrix ];
+    then
+        echo "No se encontró el directorio de Matrix."
+        echo "Clonando Matrix Server..."
+
+        git clone https://github.com/Franklin-Soft/Matrix-Server.git ~/matrix
+    fi
+
+    cd $HOME/matrix
+
+    git remote update
+
+    STATUS=$(git status -uno | grep 'Your branch is up to date')
+
+    echo "Buscando actualizaciones de Matrix Server..."
+
+    if [ -z "$STATUS" ]; then
+        git reset --hard HEAD
+        git pull
+
+        sh update
+    else
+        echo "\033[0;33mMatrix Server ya está actualizado.\033[0m"
+    fi
+    ;;
+
+uninstall)
+    echo "¿Estás completamente seguro?"
+    echo ""
+    echo "Esta acción eliminará permanentemente todos los datos del servidor web (Apache, MySQL/MariaDB, PHP, Composer) y no se puede deshacer."
+    echo ""
+
+    read -p "¿Deseas continuar? (y/n) " REPLY
+
+    if [ "$REPLY" = "y" ]
+    then
+        stop_fpm
+
+        rm -f $PREFIX/etc/apache2/server.crt
+        rm -f $PREFIX/etc/apache2/server.key
+
+        apt purge apache2 php php-fpm php-sodium php-apache openssl-tool mariadb -y
+        apt autoremove -y
+
+        cd ~/
+        rm -rf matrix
+        rm -f $PREFIX/bin/matrix
+
+        echo "Matrix Server se ha desinstalado correctamente."
+    else
+        echo "Cancelado."
+    fi
+    ;;
+
+*)
+    echo "Matrix Server (Termux, Apache, MariaDB, PHP) v1.0"
+    echo "por github.com/Franklin-Soft"
+    echo ""
+    echo "Comandos:"
+    echo " start          Iniciar Matrix Server en el puerto 80"
+    echo " start-ssl      Iniciar Matrix Server con SSL en el puerto 443"
+    echo " stop           Detener Matrix Server"
+    echo " update         Actualizar Matrix Server"
+    echo " uninstall      Desinstalar Matrix Server"
+    ;;
+esac
