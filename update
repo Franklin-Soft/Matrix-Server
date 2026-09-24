@@ -1,37 +1,121 @@
 #!$PREFIX/bin/bash
+# ================================================================
+# MATRIX SERVER - update
+# https://github.com/Franklin-Soft/Matrix-Server
+# ================================================================
 
 BLUE='\033[0;34m'
 RED='\033[0;31m'
 YELLOW='\033[0;33m'
+GREEN='\033[0;32m'
 NC='\033[0m'
 
-apachectl stop
+echo -e "${BLUE}Actualizando Matrix Server...${NC}"
 
-pgrep php-fpm && pkill php-fpm
+# --- Detener servicios ---
+apachectl stop 2>/dev/null
 
-pgrep mariadb && pkill mariadb
+pgrep -x php-fpm > /dev/null && pkill -x php-fpm
 
-echo "${BLUE}Actualizando Matrix Server...${NC}"
+pgrep mariadbd && pkill mariadbd
+pgrep mariadbd-safe && pkill mariadbd-safe
 
+sleep 1
+
+# --- Reinstalar dependencias clave ---
+echo -e "${BLUE}Verificando dependencias...${NC}"
 pkg install php-fpm php-sodium -y
 
+# --- Actualizar httpd.conf ---
+echo "Actualizando httpd.conf..."
 rm -f $PREFIX/etc/apache2/httpd.conf
-
 cp httpd.conf $PREFIX/etc/apache2/
 
+# --- Actualizar httpd-ssl.conf ---
+echo "Actualizando httpd-ssl.conf..."
 rm -f $PREFIX/etc/apache2/extra/httpd-ssl.conf
-
 cp httpd-ssl.conf $PREFIX/etc/apache2/extra/
 
+# --- Actualizar php.ini ---
+echo "Actualizando php.ini..."
+mkdir -p $PREFIX/etc/php
+cp -f php.ini $PREFIX/etc/php/php.ini
+
+# --- Actualizar comando matrix ---
+echo "Actualizando comando matrix..."
 rm -f $PREFIX/bin/matrix
-
 chmod +x matrix
-
 cp matrix $PREFIX/bin/
 
+# --- Actualizar .htaccess y config ---
 cp -n .htaccess /sdcard/htdocs/
-
 cp -n config.inc.php /sdcard/htdocs/phpmyadmin/config.inc.php
 
-echo "${RED}¡Listo!${NC}"
-echo "${YELLOW}Matrix Server está actualizado.${NC}"
+# ================================================================
+# Deteccion y regeneracion del socket de MariaDB
+# ================================================================
+echo -e "${BLUE}Actualizando configuracion de MariaDB...${NC}"
+
+# Arrancar MariaDB temporalmente para detectar el socket
+if ! pgrep -x mariadbd > /dev/null; then
+    mariadbd-safe &
+    sleep 5
+fi
+
+SOCK_PATH=$(mariadb -u root -N -B -e "SELECT @@socket;" 2>/dev/null)
+
+if [ -z "$SOCK_PATH" ]; then
+    for candidate in \
+        "$PREFIX/var/run/mysqld.sock" \
+        "$PREFIX/var/run/mysqld/mysqld.sock" \
+        "$PREFIX/tmp/mysql.sock" \
+        "/tmp/mysql.sock"
+    do
+        if [ -S "$candidate" ]; then
+            SOCK_PATH="$candidate"
+            break
+        fi
+    done
+fi
+
+if [ -z "$SOCK_PATH" ]; then
+    SOCK_PATH=$(find "$PREFIX" -name '*.sock' \( -path '*mysql*' -o -path '*maria*' \) 2>/dev/null | head -n1)
+fi
+
+if [ -z "$SOCK_PATH" ]; then
+    SOCK_PATH="$PREFIX/var/run/mysqld.sock"
+fi
+
+echo -e "${GREEN}Socket detectado: $SOCK_PATH${NC}"
+
+mkdir -p $PREFIX/etc/php/conf.d
+cat > $PREFIX/etc/php/conf.d/99-mysql-socket.ini <<EOF
+mysqli.default_socket = $SOCK_PATH
+pdo_mysql.default_socket = $SOCK_PATH
+EOF
+
+mkdir -p $PREFIX/etc/mysql
+cat > $PREFIX/etc/mysql/my.cnf <<EOF
+[client]
+port=3306
+socket=$SOCK_PATH
+
+[mysqld]
+port=3306
+socket=$SOCK_PATH
+datadir=$PREFIX/var/lib/mysql
+
+[mysqldump]
+quick
+max_allowed_packet=512M
+EOF
+
+# --- Detener MariaDB de nuevo (matrix lo arranca) ---
+pkill mariadbd 2>/dev/null
+pkill mariadbd-safe 2>/dev/null
+
+echo -e "${RED}Listo!${NC}"
+echo -e "${YELLOW}Matrix Server esta actualizado.${NC}"
+echo -e "Ejecuta: ${YELLOW}matrix start${NC}"
+
+# matrix-update

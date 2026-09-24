@@ -1,15 +1,73 @@
 #!/data/data/com.termux/files/usr/bin/sh
+# ================================================================
+# MATRIX SERVER - matrix
+# https://github.com/Franklin-Soft/Matrix-Server
+# ================================================================
 
-if [ ! -d /sdcard/htdocs ]
-then
+if [ ! -d /sdcard/htdocs ]; then
     mkdir /sdcard/htdocs
 fi
 
 ACMD="$1"
 
+# --- Colores ---
+YELLOW='\033[0;33m'
+GREEN='\033[0;32m'
+RED='\033[0;31m'
+NC='\033[0m'
+
+# ================================================================
+# Deteccion dinamica del socket de MariaDB
+# ================================================================
+detect_mysql_socket() {
+    SOCK=$(mariadb -u root -N -B -e "SELECT @@socket;" 2>/dev/null)
+    if [ -n "$SOCK" ]; then
+        echo "$SOCK"
+        return 0
+    fi
+
+    for candidate in \
+        "$PREFIX/var/run/mysqld.sock" \
+        "$PREFIX/var/run/mysqld/mysqld.sock" \
+        "$PREFIX/tmp/mysql.sock" \
+        "/tmp/mysql.sock"
+    do
+        if [ -S "$candidate" ]; then
+            echo "$candidate"
+            return 0
+        fi
+    done
+
+    FOUND=$(find "$PREFIX" -name '*.sock' \( -path '*mysql*' -o -path '*maria*' \) 2>/dev/null | head -n1)
+    if [ -n "$FOUND" ]; then
+        echo "$FOUND"
+        return 0
+    fi
+
+    return 1
+}
+
+# ================================================================
+# Autorreparar la configuracion del socket
+# ================================================================
+ensure_mysql_socket_config() {
+    SOCK_PATH=$(detect_mysql_socket)
+    if [ -z "$SOCK_PATH" ]; then
+        SOCK_PATH="$PREFIX/var/run/mysqld.sock"
+    fi
+
+    mkdir -p $PREFIX/etc/php/conf.d
+    cat > $PREFIX/etc/php/conf.d/99-mysql-socket.ini <<EOF
+mysqli.default_socket = $SOCK_PATH
+pdo_mysql.default_socket = $SOCK_PATH
+EOF
+}
+
+# ================================================================
+# Arranque/parada de PHP-FPM
+# ================================================================
 start_fpm() {
-    if ! pgrep -x php-fpm > /dev/null
-    then
+    if ! pgrep -x php-fpm > /dev/null; then
         echo "Iniciando PHP-FPM..."
         php-fpm
         sleep 1
@@ -17,8 +75,7 @@ start_fpm() {
 }
 
 stop_fpm() {
-    if pgrep -x php-fpm > /dev/null
-    then
+    if pgrep -x php-fpm > /dev/null; then
         echo "Deteniendo PHP-FPM..."
         pkill -x php-fpm
     fi
@@ -26,8 +83,11 @@ stop_fpm() {
 
 case $ACMD in
 start)
+    ensure_mysql_socket_config
+
     echo "Iniciando Apache..."
     apachectl start
+
     start_fpm
 
     echo "Iniciando MySQL/MariaDB..."
@@ -57,8 +117,11 @@ start-ssl)
         mv -f server.key $PREFIX/etc/apache2/server.key
     fi
 
+    ensure_mysql_socket_config
+
     echo "Iniciando Matrix Server con SSL..."
     apachectl restart
+
     start_fpm
 
     echo "Iniciando MySQL/MariaDB..."
@@ -76,13 +139,13 @@ stop)
     apachectl stop
     stop_fpm
 
-    pgrep mariadb && pkill mariadb
+    pgrep mariadbd && pkill mariadbd
+    pgrep mariadbd-safe && pkill mariadbd-safe
     ;;
 
 update)
-    if [ ! -d ~/matrix ];
-    then
-        echo "No se encontró el directorio de Matrix."
+    if [ ! -d ~/matrix ]; then
+        echo "No se encontro el directorio de Matrix."
         echo "Clonando Matrix Server..."
 
         git clone https://github.com/Franklin-Soft/Matrix-Server.git ~/matrix
@@ -102,20 +165,19 @@ update)
 
         sh update
     else
-        echo "\033[0;33mMatrix Server ya está actualizado.\033[0m"
+        echo -e "${YELLOW}Matrix Server ya esta actualizado.${NC}"
     fi
     ;;
 
 uninstall)
-    echo "¿Estás completamente seguro?"
+    echo "Estas completamente seguro?"
     echo ""
-    echo "Esta acción eliminará permanentemente todos los datos del servidor web (Apache, MySQL/MariaDB, PHP, Composer) y no se puede deshacer."
+    echo "Esta accion eliminara permanentemente todos los datos del servidor web (Apache, MySQL/MariaDB, PHP, Composer) y no se puede deshacer."
     echo ""
 
-    read -p "¿Deseas continuar? (y/n) " REPLY
+    read -p "Deseas continuar? (y/n) " REPLY
 
-    if [ "$REPLY" = "y" ]
-    then
+    if [ "$REPLY" = "y" ]; then
         stop_fpm
 
         rm -f $PREFIX/etc/apache2/server.crt
@@ -146,3 +208,5 @@ uninstall)
     echo " uninstall      Desinstalar Matrix Server"
     ;;
 esac
+
+# matrix
