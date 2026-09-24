@@ -24,6 +24,29 @@ fi
 echo -e "${BLUE}Instalando Apache, PHP, PHP-FPM y Sodium...${NC}"
 pkg install php-apache php-fpm php-sodium openssl-tool -y
 
+# ================================================================
+# Ajustar www.conf de PHP-FPM para Termux
+# ================================================================
+WWW_CONF="$PREFIX/etc/php-fpm.d/www.conf"
+
+if [ -f "$WWW_CONF" ]; then
+    echo "Ajustando www.conf para Termux..."
+
+    # Comentar user/group: FPM no corre como root, estas directivas no aplican
+    sed -i 's/^user = /;user = /' "$WWW_CONF"
+    sed -i 's/^group = /;group = /' "$WWW_CONF"
+
+    # Fijar el socket en una ruta estable
+    sed -i "s|^listen = .*|listen = $PREFIX/var/run/php-fpm.sock|" "$WWW_CONF"
+    sed -i "s|^;listen = .*|listen = $PREFIX/var/run/php-fpm.sock|" "$WWW_CONF"
+
+    # Fijar el log de errores en un sitio conocido
+    sed -i "s|^;error_log = .*|error_log = $PREFIX/var/log/php-fpm.log|" "$WWW_CONF"
+    sed -i "s|^error_log = .*|error_log = $PREFIX/var/log/php-fpm.log|" "$WWW_CONF"
+
+    echo "www.conf ajustado."
+fi
+
 # --- Copiar httpd.conf ---
 echo "Copiando httpd.conf..."
 rm -f $PREFIX/etc/apache2/httpd.conf
@@ -98,7 +121,6 @@ fi
 SOCK_PATH=$(mariadb -u root -N -B -e "SELECT @@socket;" 2>/dev/null)
 
 if [ -z "$SOCK_PATH" ]; then
-    # Intentar rutas tipicas
     for candidate in \
         "$PREFIX/var/run/mysqld.sock" \
         "$PREFIX/var/run/mysqld/mysqld.sock" \
@@ -113,7 +135,6 @@ if [ -z "$SOCK_PATH" ]; then
 fi
 
 if [ -z "$SOCK_PATH" ]; then
-    # Busqueda de ultimo recurso
     SOCK_PATH=$(find "$PREFIX" -name '*.sock' \( -path '*mysql*' -o -path '*maria*' \) 2>/dev/null | head -n1)
 fi
 
@@ -163,8 +184,8 @@ if ($m->connect_error) {
 '
 
 # Detener MariaDB para dejar que matrix lo arranque luego
-pkill mariadbd 2>/dev/null
-pkill mariadbd-safe 2>/dev/null
+pkill -x mariadbd 2>/dev/null
+pkill -x mariadbd-safe 2>/dev/null
 
 echo
 echo -e "${GREEN}Matrix Server se ha instalado correctamente.${NC}"

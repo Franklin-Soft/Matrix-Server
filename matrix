@@ -65,11 +65,31 @@ EOF
 }
 
 # ================================================================
+# Ajustar www.conf de PHP-FPM para Termux
+# ================================================================
+fix_fpm_config() {
+    WWW_CONF="$PREFIX/etc/php-fpm.d/www.conf"
+
+    if [ ! -f "$WWW_CONF" ]; then
+        return 0
+    fi
+
+    # Comentar user/group si aun estan activos
+    if grep -q '^user = ' "$WWW_CONF" || grep -q '^group = ' "$WWW_CONF"; then
+        sed -i 's/^user = /;user = /' "$WWW_CONF"
+        sed -i 's/^group = /;group = /' "$WWW_CONF"
+        echo "www.conf ajustado para Termux (user/group ignorados)."
+    fi
+}
+
+# ================================================================
 # PHP-FPM
 # ================================================================
 FPM_SOCK="/data/data/com.termux/files/usr/var/run/php-fpm.sock"
 
 start_fpm() {
+    fix_fpm_config
+
     if pgrep -f php-fpm > /dev/null; then
         echo "PHP-FPM ya esta corriendo."
         return 0
@@ -206,7 +226,13 @@ start-ssl)
     apachectl restart
     sleep 1
 
-    start_fpm
+    fix_fpm_config
+
+    if ! pgrep -f php-fpm > /dev/null; then
+        php-fpm
+        sleep 1
+    fi
+
     start_mariadb
 
     echo "Abriendo navegador: https://localhost/"
@@ -352,7 +378,7 @@ status)
 
     echo ""
 
-    # --- URLs de acceso ---
+    # --- URLs ---
     echo -e "${BLUE}Acceso:${NC}"
     echo " HTTP:        http://localhost/"
     echo " HTTPS:       https://localhost/"
@@ -424,7 +450,7 @@ uninstall)
     echo " start          Iniciar Matrix Server en el puerto 80"
     echo " start-ssl      Iniciar Matrix Server con SSL en el puerto 443"
     echo " stop           Detener Matrix Server"
-    echo " restart        Reiniciar Matrix Server (stop + start)"
+    echo " restart        Reiniciar Matrix Server"
     echo " status         Ver el estado de los servicios"
     echo " update         Actualizar Matrix Server"
     echo " uninstall      Desinstalar Matrix Server"

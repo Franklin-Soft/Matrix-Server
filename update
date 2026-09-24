@@ -15,16 +15,25 @@ echo -e "${BLUE}Actualizando Matrix Server...${NC}"
 # --- Detener servicios ---
 apachectl stop 2>/dev/null
 
-pgrep -x php-fpm > /dev/null && pkill -x php-fpm
+pgrep -f php-fpm > /dev/null && pkill -f php-fpm
 
-pgrep mariadbd && pkill mariadbd
-pgrep mariadbd-safe && pkill mariadbd-safe
+pgrep -x mariadbd-safe > /dev/null && pkill -x mariadbd-safe
+pgrep -x mariadbd > /dev/null && pkill -x mariadbd
 
 sleep 1
 
 # --- Reinstalar dependencias clave ---
 echo -e "${BLUE}Verificando dependencias...${NC}"
 pkg install php-fpm php-sodium -y
+
+# --- Reajustar www.conf de PHP-FPM ---
+WWW_CONF="$PREFIX/etc/php-fpm.d/www.conf"
+
+if [ -f "$WWW_CONF" ]; then
+    echo "Reajustando www.conf para Termux..."
+    sed -i 's/^user = /;user = /' "$WWW_CONF"
+    sed -i 's/^group = /;group = /' "$WWW_CONF"
+fi
 
 # --- Actualizar httpd.conf ---
 echo "Actualizando httpd.conf..."
@@ -56,7 +65,6 @@ cp -n config.inc.php /sdcard/htdocs/phpmyadmin/config.inc.php
 # ================================================================
 echo -e "${BLUE}Actualizando configuracion de MariaDB...${NC}"
 
-# Arrancar MariaDB temporalmente para detectar el socket
 if ! pgrep -x mariadbd > /dev/null; then
     mariadbd-safe &
     sleep 5
@@ -110,9 +118,8 @@ quick
 max_allowed_packet=512M
 EOF
 
-# --- Detener MariaDB de nuevo (matrix lo arranca) ---
-pkill mariadbd 2>/dev/null
-pkill mariadbd-safe 2>/dev/null
+pkill -x mariadbd 2>/dev/null
+pkill -x mariadbd-safe 2>/dev/null
 
 echo -e "${RED}Listo!${NC}"
 echo -e "${YELLOW}Matrix Server esta actualizado.${NC}"
