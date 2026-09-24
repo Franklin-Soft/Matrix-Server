@@ -4,7 +4,6 @@
 # https://github.com/Franklin-Soft/Matrix-Server
 # ================================================================
 
-# --- Colores ---
 BLUE='\033[0;34m'
 RED='\033[0;31m'
 YELLOW='\033[0;33m'
@@ -13,14 +12,12 @@ NC='\033[0m'
 
 echo -e "${BLUE}=== Matrix Server - Instalacion ===${NC}"
 
-# --- Permiso de almacenamiento ---
 if [ ! -d ~/storage ]; then
     echo "Solicitando permiso de almacenamiento..."
     termux-setup-storage
     sleep 5
 fi
 
-# --- Instalar paquetes base ---
 echo -e "${BLUE}Instalando Apache, PHP, PHP-FPM y Sodium...${NC}"
 pkg install php-apache php-fpm php-sodium openssl-tool -y
 
@@ -32,15 +29,12 @@ WWW_CONF="$PREFIX/etc/php-fpm.d/www.conf"
 if [ -f "$WWW_CONF" ]; then
     echo "Ajustando www.conf para Termux..."
 
-    # Comentar user/group: FPM no corre como root, estas directivas no aplican
     sed -i 's/^user = /;user = /' "$WWW_CONF"
     sed -i 's/^group = /;group = /' "$WWW_CONF"
 
-    # Fijar el socket en una ruta estable
     sed -i "s|^listen = .*|listen = $PREFIX/var/run/php-fpm.sock|" "$WWW_CONF"
     sed -i "s|^;listen = .*|listen = $PREFIX/var/run/php-fpm.sock|" "$WWW_CONF"
 
-    # Fijar el log de errores en un sitio conocido
     sed -i "s|^;error_log = .*|error_log = $PREFIX/var/log/php-fpm.log|" "$WWW_CONF"
     sed -i "s|^error_log = .*|error_log = $PREFIX/var/log/php-fpm.log|" "$WWW_CONF"
 
@@ -57,6 +51,10 @@ echo "Copiando httpd-ssl.conf..."
 rm -f $PREFIX/etc/apache2/extra/httpd-ssl.conf
 cp httpd-ssl.conf $PREFIX/etc/apache2/extra/
 
+# --- Crear directorio de VirtualHosts ---
+echo "Creando directorio para dominios virtuales..."
+mkdir -p $PREFIX/etc/apache2/extra/matrix-vhosts
+
 # --- Copiar php.ini ---
 echo "Copiando php.ini..."
 mkdir -p $PREFIX/etc/php
@@ -71,7 +69,8 @@ openssl req \
     -out server.crt \
     -days 365 \
     -nodes \
-    -subj '/CN=localhost'
+    -subj '/CN=localhost' \
+    -addext "subjectAltName=DNS:localhost,DNS:*.go,IP:127.0.0.1"
 
 mv -f server.crt $PREFIX/etc/apache2/
 mv -f server.key $PREFIX/etc/apache2/
@@ -90,6 +89,10 @@ pkg install mariadb composer -y
 mkdir -p /sdcard/htdocs
 cp -n .htaccess /sdcard/htdocs/
 cp -n index.php /sdcard/htdocs/
+
+# --- Crear archivo .virtual-host ---
+echo "Creando archivo de dominios virtuales..."
+echo "127.0.0.1 .go" > /sdcard/htdocs/.virtual-host
 
 # --- Crear phpinfo ---
 # php_info='/sdcard/htdocs/phpinfo'
@@ -113,7 +116,6 @@ cp -f config.inc.php /sdcard/htdocs/phpmyadmin/config.inc.php
 # ================================================================
 echo -e "${BLUE}Detectando socket de MariaDB...${NC}"
 
-# Arrancar MariaDB por primera vez si no esta corriendo
 if ! pgrep -x mariadbd > /dev/null; then
     mariadbd-safe &
     sleep 5
@@ -146,14 +148,12 @@ fi
 
 echo -e "${GREEN}Socket detectado: $SOCK_PATH${NC}"
 
-# --- Escribir configuracion del socket para PHP ---
 mkdir -p $PREFIX/etc/php/conf.d
 cat > $PREFIX/etc/php/conf.d/99-mysql-socket.ini <<EOF
 mysqli.default_socket = $SOCK_PATH
 pdo_mysql.default_socket = $SOCK_PATH
 EOF
 
-# --- Escribir configuracion de MariaDB ---
 mkdir -p $PREFIX/etc/mysql
 cat > $PREFIX/etc/mysql/my.cnf <<EOF
 [client]
@@ -184,7 +184,6 @@ if ($m->connect_error) {
 }
 '
 
-# Detener MariaDB para dejar que matrix lo arranque luego
 pkill -x mariadbd 2>/dev/null
 pkill -x mariadbd-safe 2>/dev/null
 

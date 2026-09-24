@@ -45,6 +45,9 @@ echo "Actualizando httpd-ssl.conf..."
 rm -f $PREFIX/etc/apache2/extra/httpd-ssl.conf
 cp httpd-ssl.conf $PREFIX/etc/apache2/extra/
 
+# --- Asegurar directorio de VirtualHosts ---
+mkdir -p $PREFIX/etc/apache2/extra/matrix-vhosts
+
 # --- Actualizar php.ini ---
 echo "Actualizando php.ini..."
 mkdir -p $PREFIX/etc/php
@@ -56,11 +59,15 @@ rm -f $PREFIX/bin/matrix
 chmod +x matrix
 cp matrix $PREFIX/bin/
 
-# --- Actualizar .htaccess y config ---
+# --- Actualizar .htaccess, index.php y config ---
 cp -n .htaccess /sdcard/htdocs/
-# Actualizar pagina de bienvenida (solo si no existe, para no sobrescribir)
 cp -n index.php /sdcard/htdocs/
 cp -n config.inc.php /sdcard/htdocs/phpmyadmin/config.inc.php
+
+# --- Asegurar archivo .virtual-host ---
+if [ ! -f /sdcard/htdocs/.virtual-host ]; then
+    echo "127.0.0.1 .go" > /sdcard/htdocs/.virtual-host
+fi
 
 # ================================================================
 # Deteccion y regeneracion del socket de MariaDB

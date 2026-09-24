@@ -17,6 +17,11 @@ RED='\033[0;31m'
 BLUE='\033[0;34m'
 NC='\033[0m'
 
+# --- Rutas fijas ---
+VHOST_DIR="$PREFIX/etc/apache2/extra/matrix-vhosts"
+VHOST_LIFE_FILE="/sdcard/htdocs/.virtual-host"
+FPM_SOCK="/data/data/com.termux/files/usr/var/run/php-fpm.sock"
+
 # ================================================================
 # Deteccion dinamica del socket de MariaDB
 # ================================================================
@@ -65,6 +70,111 @@ EOF
 }
 
 # ================================================================
+# Dominios virtuales .go
+# ================================================================
+
+add_virtualhost_life() {
+    if [ ! -f "$VHOST_LIFE_FILE" ]; then
+        echo "Creando archivo de dominios virtuales..."
+        echo "127.0.0.1 .go" > "$VHOST_LIFE_FILE"
+        echo -e "${GREEN}Archivo creado: $VHOST_LIFE_FILE${NC}"
+        echo ""
+        echo -e "${YELLOW}IMPORTANTE:${NC}"
+        echo "1. Abre la app Virtual Hosts en tu telefono"
+        echo "2. Importa el archivo $VHOST_LIFE_FILE"
+        echo "3. Activa Virtual Hosts (boton verde)"
+        echo ""
+        echo "Con eso, cualquier carpeta en /sdcard/htdocs/ sera accesible como:"
+        echo "  http://nombrecarpeta.go"
+        echo ""
+    fi
+}
+
+generate_apache_vhosts() {
+    echo "Escaneando proyectos en /sdcard/htdocs/..."
+
+    mkdir -p "$VHOST_DIR"
+
+    rm -f "$VHOST_DIR"/*.conf
+
+    COUNT=0
+
+    CERT_FILE="$PREFIX/etc/apache2/server.crt"
+    KEY_FILE="$PREFIX/etc/apache2/server.key"
+
+    for dir in /sdcard/htdocs/*/; do
+        [ -d "$dir" ] || continue
+
+        NAME=$(basename "$dir")
+
+        case "$NAME" in
+            .*|phpmyadminx|phpinfo) continue ;;
+        esac
+
+        SAFE_NAME=$(echo "$NAME" | tr -cd 'a-zA-Z0-9_-')
+        [ -z "$SAFE_NAME" ] && continue
+
+        CONF_FILE="$VHOST_DIR/$SAFE_NAME.conf"
+
+        cat > "$CONF_FILE" <<EOF
+# =====================================================
+# Proyecto: $NAME
+# Ruta:     $dir
+# Generado automaticamente por Matrix Server
+# =====================================================
+
+<VirtualHost *:80>
+    ServerName $SAFE_NAME.go
+    DocumentRoot "$dir"
+    <Directory "$dir">
+        AllowOverride All
+        Require all granted
+        Options Indexes FollowSymLinks
+    </Directory>
+    ErrorLog  "$PREFIX/var/log/apache2/$SAFE_NAME.error.log"
+    CustomLog "$PREFIX/var/log/apache2/$SAFE_NAME.access.log" common
+</VirtualHost>
+
+<VirtualHost *:443>
+    ServerName $SAFE_NAME.go
+    DocumentRoot "$dir"
+    <Directory "$dir">
+        AllowOverride All
+        Require all granted
+        Options Indexes FollowSymLinks
+    </Directory>
+
+    SSLEngine on
+    SSLCertificateFile    "$CERT_FILE"
+    SSLCertificateKeyFile "$KEY_FILE"
+
+    ErrorLog  "$PREFIX/var/log/apache2/$SAFE_NAME-ssl.error.log"
+    CustomLog "$PREFIX/var/log/apache2/$SAFE_NAME-ssl.access.log" common
+</VirtualHost>
+EOF
+
+        COUNT=$((COUNT + 1))
+    done
+
+    echo -e "${GREEN}$COUNT proyectos detectados.${NC}"
+
+    if [ "$COUNT" -gt 0 ]; then
+        echo "Dominios disponibles:"
+        for dir in /sdcard/htdocs/*/; do
+            [ -d "$dir" ] || continue
+            NAME=$(basename "$dir")
+            case "$NAME" in
+                .*|phpmyadmin|phpinfo) continue ;;
+            esac
+            SAFE_NAME=$(echo "$NAME" | tr -cd 'a-zA-Z0-9_-')
+            [ -z "$SAFE_NAME" ] && continue
+            echo "  http://$SAFE_NAME.go"
+            echo "  https://$SAFE_NAME.go"
+        done
+    fi
+}
+
+# ================================================================
 # Ajustar www.conf de PHP-FPM para Termux
 # ================================================================
 fix_fpm_config() {
@@ -74,7 +184,6 @@ fix_fpm_config() {
         return 0
     fi
 
-    # Comentar user/group si aun estan activos
     if grep -q '^user = ' "$WWW_CONF" || grep -q '^group = ' "$WWW_CONF"; then
         sed -i 's/^user = /;user = /' "$WWW_CONF"
         sed -i 's/^group = /;group = /' "$WWW_CONF"
@@ -85,8 +194,6 @@ fix_fpm_config() {
 # ================================================================
 # PHP-FPM
 # ================================================================
-FPM_SOCK="/data/data/com.termux/files/usr/var/run/php-fpm.sock"
-
 start_fpm() {
     fix_fpm_config
 
@@ -193,6 +300,8 @@ stop_apache() {
 case $ACMD in
 start)
     ensure_mysql_socket_config
+    add_virtualhost_life
+    generate_apache_vhosts
 
     start_apache
     start_fpm
@@ -214,13 +323,16 @@ start-ssl)
             -out server.crt \
             -days 365 \
             -nodes \
-            -subj '/CN=localhost'
+            -subj '/CN=localhost' \
+            -addext "subjectAltName=DNS:localhost,DNS:*.go,IP:127.0.0.1"
 
         mv -f server.crt $PREFIX/etc/apache2/server.crt
         mv -f server.key $PREFIX/etc/apache2/server.key
     fi
 
     ensure_mysql_socket_config
+    add_virtualhost_life
+    generate_apache_vhosts
 
     echo "Iniciando Matrix Server con SSL..."
     apachectl restart
@@ -290,6 +402,8 @@ restart)
     echo "=== Iniciando servicios ==="
 
     ensure_mysql_socket_config
+    add_virtualhost_life
+    generate_apache_vhosts
 
     start_apache
     start_fpm
@@ -301,18 +415,62 @@ restart)
     termux-open-url http://localhost/
     ;;
 
+vhosts)
+    echo -e "${BLUE}=== Dominios virtuales ===${NC}"
+    echo ""
+
+    if [ ! -f "$VHOST_LIFE_FILE" ]; then
+        echo -e "${YELLOW}No existe $VHOST_LIFE_FILE${NC}"
+        echo "Ejecuta 'matrix start' para generarlo."
+        exit 0
+    fi
+
+    echo "Archivo de hosts: $VHOST_LIFE_FILE"
+    echo "Contenido:"
+    cat "$VHOST_LIFE_FILE"
+    echo ""
+
+    if [ ! -d "$VHOST_DIR" ]; then
+        echo -e "${YELLOW}No hay VirtualHosts generados.${NC}"
+        echo "Ejecuta 'matrix start' para generarlos."
+        exit 0
+    fi
+
+    echo "VirtualHosts en Apache: $VHOST_DIR"
+    echo ""
+
+    FOUND=0
+    for conf in "$VHOST_DIR"/*.conf; do
+        [ -f "$conf" ] || continue
+        SERVER_NAME=$(grep -m1 'ServerName' "$conf" | awk '{print $2}')
+        DOC_ROOT=$(grep -m1 'DocumentRoot' "$conf" | awk -F'"' '{print $2}')
+        echo "  $SERVER_NAME"
+        echo "    -> $DOC_ROOT"
+        FOUND=$((FOUND + 1))
+    done
+
+    if [ "$FOUND" = "0" ]; then
+        echo "  (ninguno)"
+    else
+        echo ""
+        echo -e "${GREEN}Total: $FOUND dominios${NC}"
+    fi
+
+    echo ""
+    echo -e "${YELLOW}Recuerda:${NC} la app Virtual Hosts debe estar activa"
+    echo "para que *.go resuelva a 127.0.0.1"
+    ;;
+
 status)
     echo -e "${BLUE}=== Estado de Matrix Server ===${NC}"
     echo ""
 
-    # --- Apache ---
     if pgrep -x httpd > /dev/null; then
         echo -e "Apache:      ${GREEN}ACTIVO${NC}"
     else
         echo -e "Apache:      ${RED}APAGADO${NC}"
     fi
 
-    # --- PHP-FPM ---
     if pgrep -f php-fpm > /dev/null; then
         FPM_COUNT=$(pgrep -f php-fpm | wc -l)
         echo -e "PHP-FPM:     ${GREEN}ACTIVO${NC} ($FPM_COUNT procesos)"
@@ -320,7 +478,6 @@ status)
         echo -e "PHP-FPM:     ${RED}APAGADO${NC}"
     fi
 
-    # --- MariaDB ---
     if pgrep -x mariadbd > /dev/null; then
         echo -e "MariaDB:     ${GREEN}ACTIVO${NC}"
     else
@@ -329,7 +486,6 @@ status)
 
     echo ""
 
-    # --- Puertos ---
     echo -e "${BLUE}Puertos:${NC}"
 
     if command -v ss > /dev/null 2>&1; then
@@ -360,7 +516,6 @@ status)
 
     echo ""
 
-    # --- Sockets ---
     echo -e "${BLUE}Sockets:${NC}"
 
     if [ -S "$FPM_SOCK" ]; then
@@ -378,12 +533,20 @@ status)
 
     echo ""
 
-    # --- URLs ---
     echo -e "${BLUE}Acceso:${NC}"
     echo " HTTP:        http://localhost/"
     echo " HTTPS:       https://localhost/"
     echo " phpMyAdmin:  http://localhost/phpmyadmin"
     echo " htdocs:      /sdcard/htdocs"
+
+    if [ -d "$VHOST_DIR" ]; then
+        VCOUNT=$(ls -1 "$VHOST_DIR"/*.conf 2>/dev/null | wc -l)
+        if [ "$VCOUNT" -gt 0 ]; then
+            echo ""
+            echo -e "${BLUE}Dominios .go activos:${NC} $VCOUNT"
+            echo "  Ejecuta 'matrix vhosts' para verlos"
+        fi
+    fi
     ;;
 
 update)
@@ -452,6 +615,7 @@ uninstall)
     echo " stop           Detener Matrix Server"
     echo " restart        Reiniciar Matrix Server"
     echo " status         Ver el estado de los servicios"
+    echo " vhosts         Ver los dominios .go activos"
     echo " update         Actualizar Matrix Server"
     echo " uninstall      Desinstalar Matrix Server"
     ;;
