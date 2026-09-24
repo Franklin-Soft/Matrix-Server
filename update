@@ -58,6 +58,8 @@ cp matrix $PREFIX/bin/
 
 # --- Actualizar .htaccess y config ---
 cp -n .htaccess /sdcard/htdocs/
+# Actualizar pagina de bienvenida (solo si no existe, para no sobrescribir)
+cp -n index.php /sdcard/htdocs/
 cp -n config.inc.php /sdcard/htdocs/phpmyadmin/config.inc.php
 
 # ================================================================

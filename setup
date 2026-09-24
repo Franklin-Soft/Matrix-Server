@@ -89,6 +89,7 @@ pkg install mariadb composer -y
 # --- Crear directorio de documentos ---
 mkdir -p /sdcard/htdocs
 cp -n .htaccess /sdcard/htdocs/
+cp -n index.php /sdcard/htdocs/
 
 # --- Crear phpinfo ---
 php_info='/sdcard/htdocs/phpinfo'
