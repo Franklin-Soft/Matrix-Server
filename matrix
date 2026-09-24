@@ -1,4 +1,4 @@
-#!/data/data/com.termux/files/usr/bin/sh
+#!/data/data/com.termux/files/usr/bin/bash
 # ================================================================
 # MATRIX SERVER - matrix
 # https://github.com/Franklin-Soft/Matrix-Server
@@ -210,7 +210,7 @@ fix_fpm_config() {
 }
 
 # ================================================================
-# Deteccion de procesos (usando pgrep -f, no -x)
+# Deteccion de procesos
 # ================================================================
 is_apache_running() {
     pgrep -f "bin/httpd" > /dev/null
