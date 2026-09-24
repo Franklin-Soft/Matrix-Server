@@ -14,12 +14,13 @@ Es la evolución natural del clásico stack TAMP (Termux, Apache, MariaDB, PHP),
 - **phpMyAdmin** preinstalado y listo para usar
 - **Composer** para la gestión de dependencias PHP
 - **Certificado SSL autofirmado** generado automáticamente en la primera ejecución
+- **Página de bienvenida** con información del servidor y gestor de proyectos
 
 Todo se ejecuta localmente en tu dispositivo. Sin servidor externo, sin nube, sin suscripciones.
 
 ## Qué es Matrix Server
 
-Matrix Server convierte tu dispositivo Android en un pequeño servidor web autónomo. Instala y configura todo el stack por ti en un solo paso, y te da un comando simple (`matrix`) para iniciar, detener, actualizar o desinstalar el servidor.
+Matrix Server convierte tu dispositivo Android en un pequeño servidor web autónomo. Instala y configura todo el stack por ti en un solo paso, y te da un comando simple (`matrix`) para iniciar, detener, reiniciar, actualizar o desinstalar el servidor.
 
 Está pensado para:
 
@@ -95,7 +96,7 @@ cd ~/matrix && bash setup && cd ~/
 
 7. ¡Disfruta Matrix Server!
 
-El script `setup` instala y configura Apache, PHP, PHP-FPM, Sodium, MariaDB, phpMyAdmin y Composer, genera un certificado SSL autofirmado y registra el comando `matrix` en el `$PATH` de Termux.
+El script `setup` instala y configura Apache, PHP, PHP-FPM, Sodium, MariaDB, phpMyAdmin y Composer, genera un certificado SSL autofirmado, detecta el socket de MariaDB, ajusta PHP-FPM para Termux y registra el comando `matrix` en el `$PATH`.
 
 ## Uso
 
@@ -133,7 +134,55 @@ HTTPS usa el puerto `443`. El certificado autofirmado se genera automáticamente
 matrix stop
 ```
 
-Detiene Apache, PHP-FPM y MariaDB.
+Detiene Apache, PHP-FPM y MariaDB en orden, verifica que se hayan detenido, y limpia sockets huérfanos.
+
+### Reiniciar el servidor
+
+```bash
+matrix restart
+```
+
+Equivale a `matrix stop` seguido de `matrix start`. Útil cuando cambias configuración y quieres aplicar los cambios sin hacer dos comandos.
+
+### Ver el estado del servidor
+
+```bash
+matrix status
+```
+
+Muestra:
+
+- Si Apache está activo o apagado
+- Si PHP-FPM está activo o apagado (y cuántos procesos)
+- Si MariaDB está activo o apagado
+- Los puertos `80`, `443` y `3306` en estado `ESCUCHANDO` o `NO ESCUCHA`
+- Las rutas reales de los sockets de PHP-FPM y MariaDB
+- Las URLs de acceso
+
+Ejemplo:
+
+```text
+=== Estado de Matrix Server ===
+
+Apache:      ACTIVO
+PHP-FPM:     ACTIVO (3 procesos)
+MariaDB:     ACTIVO
+
+Puertos:
+ Puerto 80:   ESCUCHANDO
+ Puerto 443:  NO ESCUCHA
+ Puerto 3306: ESCUCHANDO
+
+Sockets:
+ PHP-FPM:     /data/data/com.termux/files/usr/var/run/php-fpm.sock
+ MariaDB:     /data/data/com.termux/files/usr/var/run/mysqld.sock
+
+Acceso:
+ HTTP:        http://localhost/
+ HTTPS:       https://localhost/
+ phpMyAdmin:  http://localhost/phpmyadmin
+ htdocs:      /sdcard/htdocs
+```
 
 ### Actualizar Matrix Server
 
@@ -141,7 +190,7 @@ Detiene Apache, PHP-FPM y MariaDB.
 matrix update
 ```
 
-Descarga los últimos cambios desde el repositorio oficial, actualiza `httpd.conf`, `httpd-ssl.conf` y el comando `matrix`, y reinstala PHP-FPM y Sodium si es necesario.
+Descarga los últimos cambios desde el repositorio oficial, actualiza `httpd.conf`, `httpd-ssl.conf`, `php.ini` y el comando `matrix`, reinstala PHP-FPM y Sodium si es necesario, y regenera la configuración del socket de MariaDB.
 
 ### Desinstalar Matrix Server
 
@@ -150,6 +199,22 @@ matrix uninstall
 ```
 
 Elimina Apache, PHP, PHP-FPM, Sodium, MariaDB, Composer, los certificados SSL y el directorio local `matrix`.
+
+## Página de bienvenida
+
+Matrix Server incluye una página de bienvenida en `/sdcard/htdocs/index.php` accesible en:
+
+```text
+http://localhost/
+```
+
+Desde ahí puedes:
+
+- Ver información del servidor (PHP, Apache, SSL, memoria, IPs)
+- Ver la lista de proyectos en `/sdcard/htdocs/`
+- Crear nuevos proyectos desde el navegador
+- Entrar a phpMyAdmin con un clic
+- Ver el `phpinfo()` completo
 
 ## phpMyAdmin
 
@@ -181,10 +246,10 @@ o, usando la ruta alternativa:
 Todo lo que coloques ahí será servido por Apache. Por ejemplo:
 
 ```text
-/sdcard/htdocs/index.php
-/sdcard/htdocs/miapp/
-/sdcard/htdocs/phpinfo/
-/sdcard/htdocs/phpmyadmin/
+/sdcard/htdocs/index.php          ← página de bienvenida
+/sdcard/htdocs/miapp/             ← tu proyecto
+/sdcard/htdocs/phpinfo/           ← phpinfo()
+/sdcard/htdocs/phpmyadmin/        ← phpMyAdmin
 ```
 
 ## Argon2id y Sodium
@@ -274,6 +339,8 @@ $plaintext = sodium_crypto_secretbox_open($ciphertext, $nonce, $key);
 matrix start       Inicia Matrix Server en el puerto 80
 matrix start-ssl   Inicia Matrix Server con SSL en el puerto 443
 matrix stop        Detiene Matrix Server
+matrix restart     Reinicia Matrix Server (stop + start)
+matrix status      Muestra el estado de los servicios
 matrix update      Actualiza Matrix Server
 matrix uninstall   Desinstala Matrix Server
 ```
@@ -288,6 +355,8 @@ matrix uninstall   Desinstala Matrix Server
 ├── config.inc.php
 ├── httpd.conf
 ├── httpd-ssl.conf
+├── index.php
+├── php.ini
 ├── matrix
 ├── setup
 └── update
@@ -302,9 +371,9 @@ matrix uninstall   Desinstala Matrix Server
 | PHP-FPM | 8.5.1 | Procesador FastCGI de PHP |
 | Sodium | 1.0.22 | Criptografía moderna |
 | Argon2id | — | Hashing seguro de contraseñas |
-| MariaDB | — | Base de datos relacional |
+| MariaDB | 13.0.2 | Base de datos relacional |
 | phpMyAdmin | 5.x | Administrador web de bases de datos |
-| Composer | 2.x | Gestor de dependencias PHP |
+| Composer | 2.10.3 | Gestor de dependencias PHP |
 | OpenSSL | — | Certificados SSL/TLS |
 
 ## Solución de problemas
@@ -322,7 +391,7 @@ apachectl configtest
 Asegúrate de que PHP-FPM esté corriendo:
 
 ```bash
-pgrep -a php-fpm
+pgrep -f php-fpm
 ```
 
 Si no está corriendo, inícialo manualmente:
@@ -334,7 +403,7 @@ php-fpm
 Luego reinicia Apache:
 
 ```bash
-apachectl restart
+matrix restart
 ```
 
 ### Falta el socket de PHP-FPM
@@ -345,11 +414,7 @@ El socket se encuentra en:
 /data/data/com.termux/files/usr/var/run/php-fpm.sock
 ```
 
-Si no existe, PHP-FPM no está corriendo. Inícialo con:
-
-```bash
-php-fpm
-```
+Si no existe, PHP-FPM no está corriendo. `matrix restart` lo regenera automáticamente.
 
 ### El puerto 80 o 443 ya está en uso
 
@@ -371,8 +436,7 @@ Comprueba que PHP-FPM y Sodium estén instalados:
 
 ```bash
 pkg install php-fpm php-sodium -y
-php-fpm
-apachectl restart
+matrix restart
 ```
 
 Luego verifica:
@@ -381,9 +445,33 @@ Luego verifica:
 curl -s http://localhost/argon_test.php
 ```
 
-### No puedo acceder al servidor desde otro dispositivo
+### phpMyAdmin muestra errores de conexión a MariaDB
 
-Matrix Server escucha en `localhost` por defecto. Para acceso desde otros dispositivos de la red local, tendrías que modificar `httpd.conf` para escuchar en `0.0.0.0` y asegurarte de que el firewall del teléfono lo permita. Esto no está habilitado por defecto por razones de seguridad.
+Verifica que el socket de MariaDB esté detectado correctamente:
+
+```bash
+matrix status
+```
+
+La línea `MariaDB:` debe mostrar una ruta que exista. Si no, ejecuta:
+
+```bash
+matrix restart
+```
+
+### phpMyAdmin muestra avisos de `Deprecated E_STRICT`
+
+Es un aviso de compatibilidad entre phpMyAdmin y PHP 8.4+. Ya está suprimido en `php.ini` de Matrix Server. Si aún aparecen, verifica:
+
+```bash
+grep error_reporting $PREFIX/etc/php/php.ini
+```
+
+Debe mostrar:
+
+```ini
+error_reporting = E_ALL & ~E_DEPRECATED & ~E_STRICT
+```
 
 ## Créditos
 
