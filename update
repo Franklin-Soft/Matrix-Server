@@ -15,10 +15,10 @@ echo -e "${BLUE}Actualizando Matrix Server...${NC}"
 # --- Detener servicios ---
 apachectl stop 2>/dev/null
 
-pgrep -f php-fpm > /dev/null && pkill -f php-fpm
+pgrep -f "php-fpm" > /dev/null && pkill -f "php-fpm"
 
-pgrep -x mariadbd-safe > /dev/null && pkill -x mariadbd-safe
-pgrep -x mariadbd > /dev/null && pkill -x mariadbd
+pgrep -f "mariadbd-safe" > /dev/null && pkill -f "mariadbd-safe"
+pgrep -f "bin/mariadbd" > /dev/null && pkill -f "bin/mariadbd"
 
 sleep 1
 
@@ -74,7 +74,7 @@ fi
 # ================================================================
 echo -e "${BLUE}Actualizando configuracion de MariaDB...${NC}"
 
-if ! pgrep -x mariadbd > /dev/null; then
+if ! pgrep -f "bin/mariadbd" > /dev/null; then
     mariadbd-safe &
     sleep 5
 fi
@@ -120,18 +120,4 @@ socket=$SOCK_PATH
 [mysqld]
 port=3306
 socket=$SOCK_PATH
-datadir=$PREFIX/var/lib/mysql
-
-[mysqldump]
-quick
-max_allowed_packet=512M
-EOF
-
-pkill -x mariadbd 2>/dev/null
-pkill -x mariadbd-safe 2>/dev/null
-
-echo -e "${RED}Listo!${NC}"
-echo -e "${YELLOW}Matrix Server esta actualizado.${NC}"
-echo -e "Ejecuta: ${YELLOW}matrix start${NC}"
-
-# matrix-update
+datadir=$PREFIX/var/lib/m
