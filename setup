@@ -92,11 +92,11 @@ cp -n .htaccess /sdcard/htdocs/
 cp -n index.php /sdcard/htdocs/
 
 # --- Crear phpinfo ---
-php_info='/sdcard/htdocs/phpinfo'
-if [ ! -d "$php_info" ]; then
-    mkdir "$php_info"
-    echo "<?php phpinfo(); ?>" > "$php_info/index.php"
-fi
+# php_info='/sdcard/htdocs/phpinfo'
+# if [ ! -d "$php_info" ]; then
+#     mkdir "$php_info"
+#     echo "<?php phpinfo(); ?>" > "$php_info/index.php"
+# fi
 
 # --- Instalar phpMyAdmin ---
 if [ ! -d /sdcard/htdocs/phpmyadmin ]; then
