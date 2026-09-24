@@ -93,7 +93,6 @@ add_virtualhost_life() {
     fi
 }
 
-# Verifica si un nombre esta en la lista de excluidos
 is_excluded() {
     local name="$1"
     for ex in $EXCLUDE_NAMES; do
@@ -107,7 +106,6 @@ generate_apache_vhosts() {
 
     mkdir -p "$VHOST_DIR"
 
-    # Limpiar VirtualHosts anteriores de Matrix
     rm -f "$VHOST_DIR"/*.conf
 
     COUNT=0
@@ -120,12 +118,10 @@ generate_apache_vhosts() {
 
         NAME=$(basename "$dir")
 
-        # Ignorar carpetas ocultas
         case "$NAME" in
             .*) continue ;;
         esac
 
-        # Ignorar nombres excluidos (phpmyadmin, phpinfo)
         if is_excluded "$NAME"; then
             continue
         fi
@@ -214,12 +210,31 @@ fix_fpm_config() {
 }
 
 # ================================================================
+# Deteccion de procesos (usando pgrep -f, no -x)
+# ================================================================
+is_apache_running() {
+    pgrep -f "bin/httpd" > /dev/null
+}
+
+is_mariadb_running() {
+    pgrep -f "bin/mariadbd" > /dev/null
+}
+
+is_mariadb_safe_running() {
+    pgrep -f "mariadbd-safe" > /dev/null
+}
+
+is_fpm_running() {
+    pgrep -f "php-fpm" > /dev/null
+}
+
+# ================================================================
 # PHP-FPM
 # ================================================================
 start_fpm() {
     fix_fpm_config
 
-    if pgrep -f php-fpm > /dev/null; then
+    if is_fpm_running; then
         echo "PHP-FPM ya esta corriendo."
         return 0
     fi
@@ -233,7 +248,7 @@ start_fpm() {
     php-fpm
     sleep 1
 
-    if pgrep -f php-fpm > /dev/null; then
+    if is_fpm_running; then
         echo "PHP-FPM iniciado correctamente."
     else
         echo -e "${YELLOW}Aviso: PHP-FPM no pudo iniciarse. Revisa $PREFIX/var/log/php-fpm.log${NC}"
@@ -241,9 +256,9 @@ start_fpm() {
 }
 
 stop_fpm() {
-    if pgrep -f php-fpm > /dev/null; then
+    if is_fpm_running; then
         echo "Deteniendo PHP-FPM..."
-        pkill -f php-fpm
+        pkill -f "php-fpm"
         sleep 1
         rm -f "$FPM_SOCK"
     fi
@@ -253,7 +268,7 @@ stop_fpm() {
 # MariaDB
 # ================================================================
 start_mariadb() {
-    if pgrep -x mariadbd > /dev/null; then
+    if is_mariadb_running; then
         echo "MariaDB ya esta corriendo."
         return 0
     fi
@@ -264,21 +279,21 @@ start_mariadb() {
 }
 
 stop_mariadb() {
-    if pgrep -x mariadbd-safe > /dev/null; then
+    if is_mariadb_safe_running; then
         echo "Deteniendo mariadbd-safe..."
-        pkill -x mariadbd-safe
+        pkill -f "mariadbd-safe"
         sleep 1
     fi
 
-    if pgrep -x mariadbd > /dev/null; then
+    if is_mariadb_running; then
         echo "Deteniendo mariadbd..."
-        pkill -x mariadbd
+        pkill -f "bin/mariadbd"
         sleep 2
     fi
 
-    if pgrep -x mariadbd > /dev/null; then
+    if is_mariadb_running; then
         echo "Forzando cierre de mariadbd..."
-        pkill -9 -x mariadbd
+        pkill -9 -f "bin/mariadbd"
         sleep 1
     fi
 }
@@ -287,7 +302,7 @@ stop_mariadb() {
 # Apache
 # ================================================================
 start_apache() {
-    if pgrep -x httpd > /dev/null; then
+    if is_apache_running; then
         echo "Apache ya esta corriendo."
         return 0
     fi
@@ -298,19 +313,19 @@ start_apache() {
 }
 
 stop_apache() {
-    if pgrep -x httpd > /dev/null; then
+    if is_apache_running; then
         echo "Deteniendo Apache..."
         apachectl stop
         sleep 2
 
         for i in 1 2 3 4 5; do
-            pgrep -x httpd > /dev/null || break
+            is_apache_running || break
             sleep 1
         done
 
-        if pgrep -x httpd > /dev/null; then
+        if is_apache_running; then
             echo "Forzando cierre de Apache..."
-            pkill -x httpd
+            pkill -f "bin/httpd"
             sleep 1
         fi
     fi
@@ -362,7 +377,7 @@ start-ssl)
 
     fix_fpm_config
 
-    if ! pgrep -f php-fpm > /dev/null; then
+    if ! is_fpm_running; then
         php-fpm
         sleep 1
     fi
@@ -385,17 +400,17 @@ stop)
     echo ""
     REMAIN=0
 
-    if pgrep -f php-fpm > /dev/null; then
+    if is_fpm_running; then
         echo -e "${YELLOW}Aviso: PHP-FPM sigue corriendo.${NC}"
         REMAIN=1
     fi
 
-    if pgrep -x httpd > /dev/null; then
+    if is_apache_running; then
         echo -e "${YELLOW}Aviso: Apache sigue corriendo.${NC}"
         REMAIN=1
     fi
 
-    if pgrep -x mariadbd > /dev/null; then
+    if is_mariadb_running; then
         echo -e "${YELLOW}Aviso: MariaDB sigue corriendo.${NC}"
         REMAIN=1
     fi
@@ -403,7 +418,7 @@ stop)
     if [ "$REMAIN" = "0" ]; then
         echo -e "${GREEN}Matrix Server detenido correctamente.${NC}"
     else
-        echo -e "${RED}Algunos servicios no se detuvieron. Revisa con: ps aux | grep -E 'httpd|php-fpm|mariadbd'${NC}"
+        echo -e "${RED}Algunos servicios no se detuvieron.${NC}"
     fi
     ;;
 
@@ -487,20 +502,20 @@ status)
     echo -e "${BLUE}=== Estado de Matrix Server ===${NC}"
     echo ""
 
-    if pgrep -x httpd > /dev/null; then
+    if is_apache_running; then
         echo -e "Apache:      ${GREEN}ACTIVO${NC}"
     else
         echo -e "Apache:      ${RED}APAGADO${NC}"
     fi
 
-    if pgrep -f php-fpm > /dev/null; then
-        FPM_COUNT=$(pgrep -f php-fpm | wc -l)
+    if is_fpm_running; then
+        FPM_COUNT=$(pgrep -f "php-fpm" | wc -l)
         echo -e "PHP-FPM:     ${GREEN}ACTIVO${NC} ($FPM_COUNT procesos)"
     else
         echo -e "PHP-FPM:     ${RED}APAGADO${NC}"
     fi
 
-    if pgrep -x mariadbd > /dev/null; then
+    if is_mariadb_running; then
         echo -e "MariaDB:     ${GREEN}ACTIVO${NC}"
     else
         echo -e "MariaDB:     ${RED}APAGADO${NC}"
