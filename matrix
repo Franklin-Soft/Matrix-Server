@@ -22,6 +22,9 @@ VHOST_DIR="$PREFIX/etc/apache2/extra/matrix-vhosts"
 VHOST_LIFE_FILE="/sdcard/htdocs/.virtual-host"
 FPM_SOCK="/data/data/com.termux/files/usr/var/run/php-fpm.sock"
 
+# --- Exclusiones de VirtualHosts ---
+EXCLUDE_NAMES="phpmyadmin phpinfo"
+
 # ================================================================
 # Deteccion dinamica del socket de MariaDB
 # ================================================================
@@ -90,11 +93,21 @@ add_virtualhost_life() {
     fi
 }
 
+# Verifica si un nombre esta en la lista de excluidos
+is_excluded() {
+    local name="$1"
+    for ex in $EXCLUDE_NAMES; do
+        [ "$name" = "$ex" ] && return 0
+    done
+    return 1
+}
+
 generate_apache_vhosts() {
     echo "Escaneando proyectos en /sdcard/htdocs/..."
 
     mkdir -p "$VHOST_DIR"
 
+    # Limpiar VirtualHosts anteriores de Matrix
     rm -f "$VHOST_DIR"/*.conf
 
     COUNT=0
@@ -107,9 +120,15 @@ generate_apache_vhosts() {
 
         NAME=$(basename "$dir")
 
+        # Ignorar carpetas ocultas
         case "$NAME" in
-            .*|phpmyadminx|phpinfo) continue ;;
+            .*) continue ;;
         esac
+
+        # Ignorar nombres excluidos (phpmyadmin, phpinfo)
+        if is_excluded "$NAME"; then
+            continue
+        fi
 
         SAFE_NAME=$(echo "$NAME" | tr -cd 'a-zA-Z0-9_-')
         [ -z "$SAFE_NAME" ] && continue
@@ -164,8 +183,11 @@ EOF
             [ -d "$dir" ] || continue
             NAME=$(basename "$dir")
             case "$NAME" in
-                .*|phpmyadmin|phpinfo) continue ;;
+                .*) continue ;;
             esac
+            if is_excluded "$NAME"; then
+                continue
+            fi
             SAFE_NAME=$(echo "$NAME" | tr -cd 'a-zA-Z0-9_-')
             [ -z "$SAFE_NAME" ] && continue
             echo "  http://$SAFE_NAME.go"
