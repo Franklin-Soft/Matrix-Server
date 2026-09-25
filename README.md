@@ -15,6 +15,7 @@ Es la evolución natural del clásico stack TAMP (Termux, Apache, MariaDB, PHP),
 - **Composer** para la gestión de dependencias PHP
 - **Certificado SSL autofirmado** generado automáticamente en la primera ejecución
 - **Página de bienvenida** con información del servidor y gestor de proyectos
+- **Dominios `.go`** (opcional) para acceder a proyectos por nombre
 
 Todo se ejecuta localmente en tu dispositivo. Sin servidor externo, sin nube, sin suscripciones.
 
@@ -184,6 +185,34 @@ Acceso:
  htdocs:      /sdcard/htdocs
 ```
 
+### Ver los dominios virtuales
+
+```bash
+matrix vhosts
+```
+
+Muestra la lista de dominios `.go` activos y sus rutas de proyecto. Ejemplo:
+
+```text
+=== Dominios virtuales ===
+
+Archivo de hosts: /sdcard/htdocs/.virtual-host
+Contenido:
+127.0.0.1 .go
+
+VirtualHosts en Apache: /data/data/com.termux/files/usr/etc/apache2/extra/matrix-vhosts
+
+  miapp.go
+    -> /sdcard/htdocs/miapp/
+  blog.go
+    -> /sdcard/htdocs/blog/
+
+Total: 2 dominios
+
+Recuerda: la app Virtual Hosts debe estar activa
+para que *.go resuelva a 127.0.0.1
+```
+
 ### Actualizar Matrix Server
 
 ```bash
@@ -250,6 +279,7 @@ Todo lo que coloques ahí será servido por Apache. Por ejemplo:
 /sdcard/htdocs/miapp/             ← tu proyecto
 /sdcard/htdocs/phpinfo/           ← phpinfo()
 /sdcard/htdocs/phpmyadmin/        ← phpMyAdmin
+/sdcard/htdocs/.virtual-host      ← dominios .go (opcional)
 ```
 
 ## Argon2id y Sodium
@@ -333,6 +363,71 @@ $ciphertext = sodium_crypto_secretbox('mensaje secreto', $nonce, $key);
 $plaintext = sodium_crypto_secretbox_open($ciphertext, $nonce, $key);
 ```
 
+## Dominios locales .go (opcional)
+
+Matrix Server puede servir cada carpeta de `/sdcard/htdocs/` como un dominio propio tipo `http://mi-proyecto.go`, al estilo de Laragon.
+
+### Estado
+
+| Elemento | Estado |
+|---|---|
+| VirtualHosts de Apache | ✅ Generados automáticamente |
+| Archivo `.virtual-host` | ✅ Creado por `matrix start` |
+| Resolución DNS `.go` | ⏸️ Requiere app Virtual Hosts activa |
+| HTTPS por dominio `.go` | ⏸️ Requiere instalar certificado CA en Android |
+
+### Cómo activarlos
+
+1. Descarga **Virtual Hosts** desde [F-Droid](https://f-droid.org/packages/com.github.xfalcon.vhosts/) o [GitHub](https://github.com/x-falcon/Virtual-Hosts/releases)
+
+2. Instálala y ábrela
+
+3. Acepta el permiso de VPN (es una VPN local, no envía tráfico a internet)
+
+4. Importa el archivo `/sdcard/htdocs/.virtual-host` (Matrix lo crea automáticamente)
+
+5. Activa Virtual Hosts con el interruptor principal
+
+6. Ejecuta:
+
+```bash
+matrix restart
+```
+
+7. Accede a tus proyectos:
+
+```text
+http://miapp.go
+http://tienda.go
+http://blog.go
+```
+
+### Generar automáticamente el archivo `.virtual-host`
+
+Matrix Server crea el archivo `/sdcard/htdocs/.virtual-host` al ejecutar `matrix start`:
+
+```text
+127.0.0.1 .go
+```
+
+Esa línea **comodín** hace que cualquier subdominio `.go` resuelva a `127.0.0.1`. No hace falta añadir una línea por proyecto.
+
+### Ver los dominios activos
+
+```bash
+matrix vhosts
+```
+
+### Nota sobre HTTPS
+
+El certificado SSL incluye `DNS:*.go` en el `subjectAltName`, así que cubre todos los dominios. Pero al ser autofirmado, el navegador mostrará advertencia la primera vez. Para eliminar la advertencia:
+
+1. Copia `$PREFIX/etc/apache2/server.crt` a `/sdcard/`
+2. En Android: **Configuración → Seguridad → Cifrado y credenciales → Instalar desde almacenamiento**
+3. Selecciona el archivo `server.crt`
+
+Este paso es manual por restricciones de seguridad de Android.
+
 ## Comandos
 
 ```text
@@ -341,6 +436,7 @@ matrix start-ssl   Inicia Matrix Server con SSL en el puerto 443
 matrix stop        Detiene Matrix Server
 matrix restart     Reinicia Matrix Server (stop + start)
 matrix status      Muestra el estado de los servicios
+matrix vhosts      Muestra los dominios .go activos
 matrix update      Actualiza Matrix Server
 matrix uninstall   Desinstala Matrix Server
 ```
@@ -352,6 +448,7 @@ matrix uninstall   Desinstala Matrix Server
 ├── .htaccess
 ├── LICENSE
 ├── README.md
+├── RENAME.md
 ├── config.inc.php
 ├── httpd.conf
 ├── httpd-ssl.conf
@@ -473,12 +570,31 @@ Debe mostrar:
 error_reporting = E_ALL & ~E_DEPRECATED & ~E_STRICT
 ```
 
+### Los dominios `.go` no funcionan
+
+Verifica los tres puntos:
+
+1. La app **Virtual Hosts** está activa (botón verde)
+2. El archivo `/sdcard/htdocs/.virtual-host` existe con `127.0.0.1 .go`
+3. Los VirtualHosts están generados:
+
+```bash
+matrix vhosts
+```
+
+Si no aparecen, regenera:
+
+```bash
+matrix restart
+```
+
 ## Créditos
 
 - [Termux](https://github.com/termux/termux-app)
 - [parzibyte.me](https://parzibyte.me/blog/en/2019/04/28/install-apache-php-7-android-termux/)
 - [termux-php-apache2-setup](https://github.com/gungunpriatna/termux-php-apache2-setup)
 - [termux-webserver](https://github.com/HadiKhoirudin/termux-webserver)
+- [Virtual Hosts](https://github.com/x-falcon/Virtual-Hosts)
 
 ## Licencia
 
